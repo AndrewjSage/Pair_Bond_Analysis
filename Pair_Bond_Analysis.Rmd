@@ -1,0 +1,841 @@
+---
+title: "Pair_Bond_Analysis_for_Paper"
+output: html_document
+date: "2024-05-06"
+---
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo=TRUE, message=FALSE, warning=FALSE, fig.height = 2, fig.width = 6, cache=TRUE)
+library(tidyverse)
+library(ggformula)
+library(knitr)
+library(gridExtra)
+library(lme4)
+library(lmerTest)
+library(lmeresampler)
+library(ggpubr)
+```
+
+
+
+```{r}
+# read and format data
+library(readxl)
+Data_wide <- read_excel("Roy Thesis Data Complete_3.xlsx") %>% filter(`filter_$` == 1)
+Data_wide <- Data_wide |> rename(Pair = `Pair#`)
+```
+
+```{r}
+#Select columns of interest 
+Data_wide <- Data_wide %>% select(Pair, Cohab, FocalSexM1F2, c(MateHGL:StimEntrences), Mating) %>% 
+                rename( MateTimeinSide = TimeinMateSide, 
+                        StimTimeinSide = TimeinStimSide) %>% 
+  #calculate differences between mate and stim
+                mutate(Huddling_Diff = MateHGL - Stim.HGL,
+                       Attacks_Diff = MateAttacks - Stim.Attacks,
+                       Duration_Diff = MateAttackDuration - Stim.AttackDuration,
+                       Time_Diff = MateTimeinSide - StimTimeinSide,
+                       Entrances_Diff = MateEntrences - StimEntrences,
+                       Mating = Mating == 1
+                        )
+
+#convert to tidy format
+Data <- Data_wide %>% pivot_longer(cols = -c(Pair, Cohab, FocalSexM1F2, Huddling_Diff,       
+                                        Attacks_Diff,Duration_Diff,Time_Diff,Entrances_Diff, Mating),
+                              names_to = "Target_Variable",
+                              values_to = "Value")
+Data <- Data %>% separate(Target_Variable, into=c("Target", "Variable"), sep=4)
+Data$Variable <- str_remove(Data$Variable, "\\.")
+Data <- Data %>% pivot_wider(names_from="Variable", values_from="Value")
+
+# Clean up variable names and types
+Data$FocalSexM1F2 <- factor(Data$FocalSexM1F2)
+#Data <- Data %>% filter(!is.na(Mating))
+Data$Cohab <- factor(Data$Cohab) 
+Data <- Data |> rename(Entrances = `Entrences`) #fix spelling error
+Data <- Data |> mutate(Cohab_num = Cohab, Cohab = fct_recode(Cohab, "1 day cohab." = "1", "3 day cohab." = "3", "5 day cohab." = "5", "7 day cohab." = "7"))
+
+# change names of Target variable to be consistent with terminology in paper
+Data <- Data |> mutate(Target=str_replace(Data$Target, "Mate", "Partner"))
+Data <- Data |> mutate(Target=str_replace(Data$Target, "Stim", "Stranger"))
+Data <- Data |> mutate(FocalSexM1F2 = fct_recode(FocalSexM1F2, "M" = "1", "F" = "2"))
+Data <- Data |> mutate(Mating = fct_recode(as.character(Mating), "Mated" = "TRUE", "Not Mated" = "FALSE"))
+Data <- Data |> rename(Huddling = HGL)
+```
+
+
+
+```{r}
+# Calculate Differences and proportions in Behaviors
+Data_F <- Data %>% filter(Target=="Partner")
+Data_F$HGL_Stranger <- Data_F$Huddling - Data_F$Huddling_Diff
+Data_F$Time_Stranger <- Data_F$TimeinSide - Data_F$Time_Diff
+Data_F$Entrances_Stranger <- Data_F$Entrances - Data_F$Entrances_Diff
+Data_F$Attacks_Stranger <- Data_F$Attacks - Data_F$Attacks_Diff
+
+Data_F$HuddlingProp <- Data_F$Huddling / (Data_F$Huddling +(Data_F$Huddling- Data_F$Huddling_Diff))
+Data_F$TimeProp <- Data_F$TimeinSide / (Data_F$TimeinSide +(Data_F$TimeinSide- Data_F$Time_Diff))
+Data_F$EntrancesProp <- Data_F$Entrances / (Data_F$Entrances+(Data_F$Entrances - Data_F$Entrances_Diff))
+Data_F$AttacksProp <- Data_F$Attacks / (Data_F$Attacks + (Data_F$Attacks - Data_F$Attacks_Diff))
+Data_F$AttacksProp[is.na(Data_F$AttacksProp)] <- 0.5
+Data_F$AttackDurationPCT <- Data_F$AttackDuration / (Data_F$AttackDuration + (Data_F$AttackDuration - Data_F$AttackDuration))
+Data_F$AttackDurationPCT[is.na(Data_F$AttackDurationPCT)] <- 0.5
+
+```
+
+
+
+
+```{r}
+# functions for analysis
+
+# calculate chi-square statistic for model comparison
+compare_models <- function(full, reduced, newdata) {
+  full_mod <- refit(full, newdata, 
+                    control = lmerControl(check.conv.singular = "ignore", 
+                                          check.conv.grad = "ignore"))
+  reduced_mod <- refit(reduced, newdata)
+  anova(full_mod, reduced_mod)$Chisq[2]
+}
+
+# calculate simulation-based p-value
+Model_Comp_Bootstrap <- function(full, reduced, nboot){
+observed <- anova(full, reduced)$Chisq[2]
+reduced_boot <- bootstrap(reduced, type = "reb", B=nboot, .refit = FALSE)
+chisq_stats <- purrr::map_dbl(reduced_boot, ~compare_models(full, reduced, newdata = .x))
+return((sum(chisq_stats >= observed) + 1) / (nboot + 1))
+}
+
+# return 
+mySumm <- function(.) {
+      s <- getME(., "sigma")
+        c(beta = getME(., "beta"), sigma = s, sig01 = unname(s * getME(., "theta")))
+}
+
+```
+
+
+```{r}
+# summary table on aggressive and affiliative behaviors
+Data |> group_by(Target, FocalSexM1F2) |> summarize(meanHuddling = mean(Huddling) %>% round(1),
+                                     sdHuddling = sd(Huddling)%>% round(1),
+                                     meanTimeinSide = mean(TimeinSide)%>% round(1),
+                                     sdTimeinSide = sd(TimeinSide)%>% round(1),
+                                     meanEntrances = mean(Entrances)%>% round(1),
+                                     sdEntrances = sd(Entrances)%>% round(1),
+                                     meanAttacks = mean(Attacks),
+                                     sdAttacks = sd(Attacks)%>% round(1),
+                                     meanDuration = mean(AttackDuration)%>% round(1),
+                                     sdDuration = sd(AttackDuration) %>% round(1),
+                                     PropAttack = mean(Attacks>0),
+                                     n = n() # divide by 2 to get number of pairs
+                                    )
+```
+
+```{r}
+# summary table on aggressive and affiliative behaviors
+Data |> group_by(Cohab, Target) |> summarize(meanHuddling = mean(Huddling) %>% round(1),
+                                     sdHGL = sd(Huddling)%>% round(1),
+                                     meanTimeinSide = mean(TimeinSide)%>% round(1),
+                                     sdTimeinSide = sd(TimeinSide)%>% round(1),
+                                     meanEntrances = mean(Entrances)%>% round(1),
+                                     sdEntrances = sd(Entrances)%>% round(1),
+                                     meanAttacks = mean(Attacks),
+                                     sdAttacks = sd(Attacks)%>% round(1),
+                                     meanDuration = mean(AttackDuration)%>% round(1),
+                                     sdDuration = sd(AttackDuration) %>% round(1),
+                                     n = n() # divide by 2 to get number of pairs
+                                    )
+```
+
+```{r}
+# Summary table of differences
+MeanTab <- Data |> filter(Target=="Partner") |> group_by(Cohab) |> summarize(MeanHuddling_Diff = mean(Huddling_Diff),
+                                                                                 MeanTime_Diff = mean(Time_Diff),
+                                                                                 MeanAttacks_Diff = mean(Attacks_Diff),
+                                                                                 MeanDuration_Diff = mean(Duration_Diff),N = n())
+MeanTab
+```
+
+
+## Graphics
+
+### Figure 1
+
+```{r, figure1, fig.height=10, fig.width=10}
+
+library(ggformula)
+
+#+      scale_y_log10() 
+
+P1 <- gf_boxplot(Huddling  ~Target, data=Data, outliers=FALSE) %>%
+   gf_point(data=Data, Huddling  ~Target, alpha=0.5) %>% 
+   gf_line( Huddling~Target,  group=~factor(Pair), alpha=0.5, linetype =  ~(FocalSexM1F2))  + 
+   facet_grid(~Cohab) +      labs(title= "Huddling", linetype = "Sex") + theme_bw()  + scale_linetype_discrete(name = "Sex", labels = c("M", "F"))  + xlab("Target**") 
+
+P2 <- gf_boxplot(TimeinSide  ~Target, data=Data, outliers=FALSE) %>%
+   gf_point(data=Data, TimeinSide  ~Target, alpha=0.5) %>% 
+   gf_line( TimeinSide~Target,  group=~factor(Pair), alpha=0.5, linetype=  ~(FocalSexM1F2))  + 
+   facet_grid(~Cohab) +  labs(title= "Time in Side Chamber", linetype = "Sex") + theme_bw() + ylab("Time in Side") + scale_linetype_discrete(name = "Sex", labels = c("M", "F"))  + xlab("Target***")
+
+P3 <- gf_boxplot(Entrances  ~Target, data=Data, outliers=FALSE) %>%
+   gf_point(data=Data, Entrances  ~Target, alpha=0.5) %>% 
+   gf_line( Entrances~Target,  group=~factor(Pair), alpha=0.5, linetype=  ~(FocalSexM1F2))  + 
+   facet_grid(~Cohab) +  labs(title= "Entrances", linetype = "Sex") + theme_bw()  + scale_linetype_discrete(name = "Sex", labels = c("M", "F"))  +  xlab("Target**")
+
+P4 <- gf_boxplot(Attacks ~Target, data=Data, outliers=FALSE) %>%
+      gf_point(data=Data, Attacks ~Target, alpha=0.5) %>% 
+      gf_line(Attacks~Target,  group=~factor(Pair), alpha=0.5, linetype=  ~(FocalSexM1F2))  + facet_grid(~Cohab) + labs(title= "Number of Attacks", linetype = "Sex") + theme_bw()  + scale_linetype_discrete(name = "Sex", labels = c("M", "F"))  + xlab("Target***")
+
+P5 <- gf_boxplot(AttackDuration ~Target, data=Data) %>%
+      gf_point(data=Data, AttackDuration ~Target, alpha=0.5) %>% 
+      gf_line(AttackDuration~Target,  group=~factor(Pair), alpha=0.5, linetype=  ~(FocalSexM1F2)) + facet_grid(~Cohab) + labs(title= "Total Attack Duration", linetype = "Sex") + theme_bw()  + scale_linetype_discrete(name = "Sex", labels = c("M", "F"))   + ylab("Attack Duration") + xlab("Target***")
+
+
+ggarrange(P1, P2, P4, P5, nrow=4, common.legend = TRUE, legend="bottom") 
+```
+
+### Figure 2
+
+```{r}
+MeanTab1 <- Data |> group_by(FocalSexM1F2, Target) |> summarize(MeanHuddling = mean(Huddling),
+                                                                MeanTime = mean(TimeinSide),
+                                                                MeanAttacks = mean(Attacks),
+                                                                MeanDuration = mean(AttackDuration),
+                                                                N = n())
+
+MeanTab2 <- Data |> group_by(Cohab, FocalSexM1F2, Target) |> summarize(MeanHuddling = mean(Huddling),
+                                                                MeanTime = mean(TimeinSide),
+                                                                MeanAttacks = mean(Attacks),
+                                                                MeanDuration = mean(AttackDuration),
+                                                                N = n())
+```
+
+```{r, fig.width=12, fig.height=10}
+
+P1 <- ggplot(data=Data , aes(x=Target, y=AttackDuration,shape=FocalSexM1F2  ) )   + geom_point(position=position_jitterdodge()) + facet_wrap( Cohab~ ., nrow=1) +  geom_bar( data=MeanTab2, aes(x=Target, y=MeanDuration, shape=FocalSexM1F2), stat="identity", position="dodge", fill="lightgrey", alpha=0.7) + theme_bw()  + scale_shape_discrete(name = "Sex", labels = c("M", "F")) + ggtitle("a) Total Attack Duration by Sex and Cohabitation Duration and Sex x Cohab. Interaction") + xlab("Target***")
+
+#P1 <- ggplot(data=Data , aes(x=Target, y=Huddling   ,shape=FocalSexM1F2        ) )  + geom_jitter(height=0) + facet_wrap( ~ FocalSexM1F2, nrow=1)  +  geom_bar( data=MeanTab1, aes(x=Target, y=MeanHuddling), stat="identity", fill="lightgrey", alpha=0.7)+ theme_bw()  + scale_shape_discrete(name = "Sex", labels = c("M", "F")) + ggtitle("a) Huddling by Sex") + xlab("Target**")
+
+#P2 <- ggplot(data=Data , aes(x=Target, y=TimeinSide   ,shape=FocalSexM1F2        ) )  + geom_jitter(height=0) + facet_wrap( ~ FocalSexM1F2, nrow=1)  +  geom_bar( data=MeanTab1, aes(x=Target, y=MeanTime), stat="identity", fill="lightgrey", alpha=0.7)+ theme_bw()  + scale_shape_discrete(name = "Sex", labels = c("M", "F")) + ggtitle("b) Time in Side by Sex") + xlab("Target***")
+
+#P3 <- ggplot(data=Data , aes(x=Target, y=Attacks   ,shape=FocalSexM1F2        ) )  + geom_jitter(height=0) + facet_wrap( ~ FocalSexM1F2, nrow=1)  +  geom_bar( data=MeanTab1, aes(x=Target, y=MeanAttacks), stat="identity", fill="lightgrey", alpha=0.7)+ theme_bw()  + scale_shape_discrete(name = "Sex", labels = c("M", "F")) + ggtitle("c) Number of Attacks by Sex") + xlab("Target***")
+
+P2 <- ggplot(data=Data , aes(x=Target, y=AttackDuration   ,shape=FocalSexM1F2        ) )  + geom_jitter(height=0) + facet_wrap( ~ FocalSexM1F2, nrow=1)  +  geom_bar( data=MeanTab1, aes(x=Target, y=MeanDuration), stat="identity", fill="lightgrey", alpha=0.7)+ theme_bw()  + scale_shape_discrete(name = "Sex", labels = c("M", "F")) + ggtitle("b) Total Attack Duration by Sex and Sex x Target Interaction*") + xlab("Target***")
+
+
+ggarrange(P1,  P2, nrow=2, ncol=1, common.legend = TRUE, legend="bottom") 
+```
+
+
+```{r}
+Data |> group_by(FocalSexM1F2, Target) |> summarize(sum(Attacks>0), n())
+```
+
+### Figure 3
+
+
+```{r}
+# formula reviewer suggested
+Data1 <- Data |> filter(Target=="Partner") |> mutate(Huddling_Stranger = Huddling-Huddling_Diff, Duration_Stranger = AttackDuration - Duration_Diff)
+Data1 <- Data1 |> mutate(Huddling_Ratio = (Huddling_Diff)/(Huddling + Huddling_Stranger),
+                         Duration_Ratio = -1*Duration_Diff/(AttackDuration + Duration_Stranger + 0.000001), # for no attack, set to 0
+                         Partner_Pref = Huddling_Ratio*0.75 + Duration_Ratio*0.25)
+head(Data1)
+```
+
+
+```{r}
+# using z-score
+Data <- Data |> mutate(Huddlingz = scale(Huddling), TimeinSidez = scale(TimeinSide), AttackDurationz = scale(AttackDuration))
+Data2 <- Data |> select(Pair, Cohab, Cohab_num, FocalSexM1F2, Mating, Target, Huddlingz, TimeinSidez, AttackDurationz, Huddling_Diff, Duration_Diff)
+Data2 <- Data2 |> pivot_wider(names_from = Target, values_from = c(Huddlingz, TimeinSidez, AttackDurationz))
+Data2 <- Data2 |> mutate(#Huddlingz_Diff = Huddlingz_Partner - Huddlingz_Stranger,
+                         Huddlingz_Diff = Huddling_Diff/sd(Huddling_Diff),
+                         #TimeinSidez_Diff = TimeinSidez_Partner - TimeinSidez_Stranger,
+                         #AttackDurationz_Diff = -1*(AttackDurationz_Partner - AttackDurationz_Stranger
+                         AttackDurationz_Diff = -1*(Duration_Diff/sd(Duration_Diff)),
+                         Mate_Pref_Index = Huddlingz_Diff*0.75 + AttackDurationz_Diff*0.25)
+head(Data2)
+```
+
+```{r}
+qplot(x=Data1$Huddling_Ratio, y=Data2$Mate_Pref_Index)+ stat_smooth(method="lm", se=FALSE) + theme_bw() + xlab(" Partner Preference Score") + ylab("Mate Preference Index")
+```
+
+```{r}
+cor(x=Data1$Huddling_Ratio, y=Data2$Mate_Pref_Index)
+cor(x=Data1[abs(Data2$Mate_Pref_Index)<2,]$Huddling_Ratio, y=Data2[abs(Data2$Mate_Pref_Index)<2,]$Mate_Pref_Index)
+```
+
+```{r}
+MeanTabMPI <- Data2 |> group_by(Cohab, FocalSexM1F2) |> summarize(MeanMPI = mean(Mate_Pref_Index),N = n())
+```
+
+```{r, figure 3}
+P1 <- ggplot(data=Data2, aes(x=Cohab, y=Mate_Pref_Index)) + geom_boxplot(outliers=FALSE)  + geom_jitter( aes(shape=FocalSexM1F2)) + theme_bw() + geom_abline(slope=0, intercept=0, linetype="dashed") + xlab("Cohabitation Duration") + ylab("Mate Preference Index") + scale_shape_discrete(name = "Sex", labels = c("M", "F")) + ggtitle("a) Mate Preference Index by Cohabitation Duration and Sex")
+
+P2 <- ggplot(data=Data2, aes(x=FocalSexM1F2, y=Mate_Pref_Index, shape=FocalSexM1F2)) + geom_boxplot(outliers=FALSE)  + geom_jitter() + theme_bw() + geom_abline(slope=0, intercept=0, linetype="dashed") + scale_shape_discrete(name = "Sex", labels = c("M", "F")) + xlab("Sex of Experimental Animal") + ylab("Mate Preference Index")  + ggtitle("b) Mate Preference Index by Sex")
+
+#ggplot(data=Data2, aes(x=Cohab, y=Mate_Pref_Index))  + geom_jitter( aes(shape=FocalSexM1F2)) +  geom_bar( data=MeanTabMPI, aes(x=Cohab, y=MeanMPI, shape=FocalSexM1F2), stat="identity", fill="lightgrey", alpha=0.7, position="dodge")+ theme_bw() 
+
+ggarrange(P1, P2, nrow=2, common.legend = TRUE, legend="bottom") 
+```
+
+
+```{r}
+Data2 |> group_by(FocalSexM1F2) |> summarize(sum(Mate_Pref_Index>0), n())
+```
+
+### Figure 4
+
+```{r, fig.height=10, fig.width=10}
+
+Data <- Data |> mutate(Mating = fct_recode(as.character(Mating), "Mated" = "TRUE", "Not Mated" = "FALSE"))
+
+library(ggformula)
+P1 <- gf_boxplot(Huddling  ~Target, data=Data |> filter(!is.na(Mating)), outliers=FALSE) %>%
+   gf_point(Huddling  ~Target, alpha=0.5) %>% 
+   gf_line( Huddling~Target,  group=~factor(Pair), alpha=0.5, linetype=  ~(FocalSexM1F2)) + facet_grid(~Mating)  + labs(title= "Huddling", linetype = "Sex") + theme_bw()  + scale_linetype_discrete(name = "Sex", labels = c("M", "F"))  +  xlab("Target**")
+
+P2 <- gf_boxplot(TimeinSide  ~Target, data=Data |> filter(!is.na(Mating)), outliers=FALSE) %>%
+   gf_point(TimeinSide  ~Target, alpha=0.5) %>% 
+   gf_line( TimeinSide~Target,  group=~factor(Pair), alpha=0.5, linetype=  ~(FocalSexM1F2)) + facet_grid(~Mating) +   labs(title= "Time in Side", linetype = "Sex") + theme_bw()  + scale_linetype_discrete(name = "Sex", labels = c("M", "F"))  +  xlab("Target**")
+
+P3 <- gf_boxplot(Entrances  ~Target, data=Data |> filter(!is.na(Mating)), outliers=FALSE) %>%
+   gf_point(Entrances  ~Target, alpha=0.5) %>% 
+   gf_line( Entrances~Target,  group=~factor(Pair), alpha=0.5, linetype=  ~(FocalSexM1F2))  + facet_grid(~Mating) +   labs(title= "Entrances", linetype = "Sex") + theme_bw()  + scale_linetype_discrete(name = "Sex", labels = c("M", "F"))  +  xlab("Target***")
+
+P4 <- gf_boxplot(Attacks ~Target, data=Data|> filter(!is.na(Mating)), outliers=FALSE) %>%
+      gf_point(Attacks ~Target, alpha=0.5) %>% 
+      gf_line(Attacks~Target,  group=~factor(Pair), alpha=0.5, linetype=  ~(FocalSexM1F2)) + facet_grid(~Mating) + labs(title= "Number of Attacks", linetype = "Sex") + theme_bw()  + scale_linetype_discrete(name = "Sex", labels = c("M", "F"))  +  xlab("Target***")
+
+P5 <- gf_boxplot(AttackDuration ~Target, data=Data|> filter(!is.na(Mating)), outliers=FALSE) %>%
+      gf_point(AttackDuration ~Target, alpha=0.5) %>% 
+      gf_line(AttackDuration~Target,  group=~factor(Pair), alpha=0.5, linetype=  ~(FocalSexM1F2)) + facet_grid(~Mating) + labs(title= "Attack Duration", linetype = "Sex") + theme_bw()  + scale_linetype_discrete(name = "Sex", labels = c("M", "F"))  +  xlab("Target***")
+
+ggarrange(P1, P2, P4, P5, nrow=4, common.legend = TRUE, legend="bottom") 
+
+```
+
+
+
+## Models and Tests
+
+### Analysis of Huddling
+
+```{r}
+set.seed(05062024)
+# Test for differences in Huddling
+M1 <- lmer(data=Data, log(Huddling + 0.1) ~ Target + Cohab_num + FocalSexM1F2 + (1|Pair))
+summary(M1)
+```
+
+
+```{r, fig.height=5, fig.width=5}
+# check model assumptions
+hist(scale(resid(M1)), freq = FALSE) 
+lines(density(scale(resid(M1))))
+```
+
+```{r, fig.width=5, fig.height=5}
+qqnorm(scale(resid(M1)))
+qqline(scale(resid(M1)))
+```
+
+Signs of non-normality. Use nonparametric block bootstrap. 
+
+```{r}
+set.seed(05062024)
+M1pval <- bootstrap_pvals(model = M1, type = "reb", B=10000,reb_type = 0)
+M1pval
+```
+
+Evidence of differences between targets. No evidence of differences between cohabs or sexes. 
+
+Estimated ratio of Huddling for partner compared to stranger:
+
+```{r}
+1/exp(summary(M1)$coefficients[2])
+```
+
+```{r, message=FALSE, warning=FALSE}
+# Test for evidence of interaction between target and cohab
+M2 <- lmer(data=Data , log(Huddling + 0.1) ~ (Cohab_num*Target) + FocalSexM1F2 + (1|Pair))
+anova(M2, M1)
+```
+
+```{r, message=FALSE, warning=FALSE}
+set.seed(05062024)
+Model_Comp_Bootstrap(M2, M1, nboot=10000)
+```
+
+No evidence of target*cohab interaction.  
+
+
+```{r}
+# Test for evidence of interaction between target and sex
+M3 <- lmer(data=Data , log(Huddling + 0.1) ~ Cohab_num + FocalSexM1F2*Target + (1|Pair))
+anova(M3, M1)
+```
+
+```{r, message=FALSE, warning=FALSE}
+set.seed(05062024)
+Model_Comp_Bootstrap(M3, M1, nboot=10000)
+```
+
+No evidence of target*sex interaction. 
+
+
+### Does difference between partner and stim differ for pairs that mate, compared to those that don't?
+
+```{r}
+set.seed(05062024)
+Data <- Data |> mutate(Mated=(Mating=="Mated"))
+M4 <- lmer(data=Data , log(Huddling + 0.1) ~  Target* Mated + (1|Pair))
+summary(M4)
+```
+
+```{r}
+set.seed(05062024)
+M4pval <- bootstrap_pvals(model = M4, type = "reb", B=10000,reb_type = 0)
+M4pval
+```
+
+P-values on interaction and MatingTRUE are fairly small. Some evidence of differences, but not small enough to say conclusively. Graphs show some evidence so we should be careful not to say there are no differences.   
+
+
+### Analysis of Time in Side
+
+```{r}
+set.seed(05062024)
+# Test for differences in time in side
+M1 <- lmer(data=Data, log(TimeinSide + 0.1) ~ Target + Cohab_num + FocalSexM1F2 + (1|Pair))
+summary(M1)
+```
+
+
+```{r, fig.height=5, fig.width=5}
+# check model assumptions
+hist(scale(resid(M1)), freq = FALSE) 
+lines(density(scale(resid(M1))))
+```
+
+```{r, fig.width=5, fig.height=5}
+qqnorm(scale(resid(M1)))
+qqline(scale(resid(M1)))
+```
+
+```{r}
+1/exp(summary(M1)$coefficients[2])
+```
+
+Signs of non-normality. Use nonparametric block bootstrap. 
+
+```{r}
+set.seed(05062024)
+M1pval <- bootstrap_pvals(model = M1, type = "reb", B=10000,reb_type = 0)
+M1pval
+```
+
+Evidence of differences between targets. No evidence of differences between cohabs or sexes. 
+
+
+```{r, message=FALSE, warning=FALSE}
+# Test for evidence of interaction between target and cohab
+M2 <- lmer(data=Data , log(TimeinSide + 0.1) ~ (Cohab_num*Target) + FocalSexM1F2 + (1|Pair))
+anova(M2, M1)
+```
+
+```{r, message=FALSE, warning=FALSE}
+set.seed(05062024)
+Model_Comp_Bootstrap(M2, M1, nboot=10000)
+```
+
+No evidence of target*cohab interaction.  
+
+
+```{r}
+# Test for evidence of interaction between target and sex
+M3 <- lmer(data=Data , log(TimeinSide + 0.1) ~ Cohab_num + FocalSexM1F2*Target + (1|Pair))
+anova(M3, M1)
+```
+
+```{r, message=FALSE, warning=FALSE}
+set.seed(05062024)
+Model_Comp_Bootstrap(M3, M1, nboot=10000)
+```
+
+No evidence of target*sex interaction. 
+
+
+### Does difference between partner and stim differ for pairs that mate, compared to those that don't?
+
+```{r}
+set.seed(05062024)
+Data <- Data |> mutate(Mated=(Mating=="Mated"))
+M4 <- lmer(data=Data , log(TimeinSide + 0.1) ~  Target* Mated + (1|Pair))
+summary(M4)
+```
+
+```{r}
+set.seed(05062024)
+M4pval <- bootstrap_pvals(model = M4, type = "reb", B=10000,reb_type = 0)
+M4pval
+```
+
+P-values on interaction and MatingTRUE are fairly small. Some evidence of differences, but not small enough to say conclusively. Graphs show some evidence so we should be careful not to say there are no differences.   
+
+
+
+
+### Attacks
+
+First test for whether or not there are differences in likelihood of an attack, regardless of number or duration.  
+
+```{r}
+#Logistic regression model for whether or not there was an attack. 
+M1 <- glmer(data=Data, Attacks>0~FocalSexM1F2 + Cohab_num +Target + (1|Pair), family=binomial(link = "logit"))
+summary(M1)
+```
+
+Strong evidence that attacks are more likely against stranger than partner. 
+
+```{r}
+# test for target*cohab interaction
+M2 <- glmer(data=Data, Attacks>0~FocalSexM1F2 + Cohab_num*Target + (1|Pair), family=binomial(link = "logit"))
+anova(M1, M2)
+```
+
+No evidence of target*cohab interaction
+
+```{r}
+# test for evidence of target*sex interaction
+M3 <- glmer(data=Data, Attacks>0~FocalSexM1F2*Target + Cohab_num + (1|Pair), family=binomial(link = "logit"))
+anova(M1, M3)
+```
+
+```{r}
+summary(M3)
+```
+
+```{r}
+M4 <- glmer(data=Data, Attacks>0~  Target * Mating + (1|Pair), family=binomial(link = "logit"))
+summary(M4)
+```
+
+Target*mating interaction not significant. 
+
+### Test for Differences in Number of Attacks
+
+
+```{r}
+set.seed(05062024)
+# Test for differences in Attacks
+M1 <- lmer(data=Data, log(Attacks + 0.1) ~ Target + Cohab_num + FocalSexM1F2 + (1|Pair))
+summary(M1)
+```
+
+
+```{r, fig.height=5, fig.width=5}
+# check model assumptions
+hist(scale(resid(M1)), freq = FALSE) 
+lines(density(scale(resid(M1))))
+```
+
+```{r, fig.width=5, fig.height=5}
+qqnorm(scale(resid(M1)))
+qqline(scale(resid(M1)))
+```
+
+Signs of non-normality. Use nonparametric block bootstrap. 
+
+```{r}
+set.seed(05062024)
+M1pval <- bootstrap_pvals(model = M1, type = "reb", B=10000,reb_type = 0)
+M1pval
+```
+
+Evidence of differences between targets. No evidence of differences between cohabs or sexes. 
+
+
+```{r, message=FALSE, warning=FALSE}
+# Test for evidence of interaction between target and cohab
+M2 <- lmer(data=Data , log(Attacks + 0.1) ~ (Cohab_num*Target) + FocalSexM1F2 + (1|Pair))
+anova(M2, M1)
+```
+
+```{r, message=FALSE, warning=FALSE}
+set.seed(05062024)
+Model_Comp_Bootstrap(M2, M1, nboot=10000)
+```
+
+No evidence of target*cohab interaction.  
+
+
+```{r}
+# Test for evidence of interaction between target and sex
+M3 <- lmer(data=Data , log(Attacks + 0.1) ~ Cohab_num + FocalSexM1F2*Target + (1|Pair))
+anova(M3, M1)
+```
+
+```{r, message=FALSE, warning=FALSE}
+set.seed(05062024)
+Model_Comp_Bootstrap(M3, M1, nboot=10000)
+```
+
+```{r}
+summary(M3)
+```
+
+Do find evidence of interaction between sex and target. Bigger difference in attacks on stranger vs partner for males than for females. 
+
+### Does difference between partner and stim differ for pairs that mate, compared to those that don't?
+
+```{r}
+set.seed(05062024)
+Data <- Data |> mutate(Mated=(Mating=="Mated"))
+M4 <- lmer(data=Data , log(Attacks + 0.1) ~  Target* Mated + (1|Pair))
+summary(M4)
+```
+
+```{r}
+set.seed(05062024)
+M4pval <- bootstrap_pvals(model = M4, type = "reb", B=10000,reb_type = 0)
+M4pval
+```
+
+No evidence of differences by mating status or mating*target interaction.  
+
+
+
+
+### Test for Differences in Attack Duration
+
+
+```{r}
+set.seed(05062024)
+# Test for differences in Attack duration
+M1 <- lmer(data=Data, log(AttackDuration + 0.1) ~ Target + Cohab_num + FocalSexM1F2 + (1|Pair))
+summary(M1)
+```
+
+
+```{r, fig.height=5, fig.width=5}
+# check model assumptions
+hist(scale(resid(M1)), freq = FALSE) 
+lines(density(scale(resid(M1))))
+```
+
+```{r, fig.width=5, fig.height=5}
+qqnorm(scale(resid(M1)))
+qqline(scale(resid(M1)))
+```
+
+Signs of non-normality. Use nonparametric block bootstrap. 
+
+```{r}
+set.seed(05062024)
+M1pval <- bootstrap_pvals(model = M1, type = "reb", B=10000,reb_type = 0)
+M1pval
+```
+
+Evidence of differences between targets. No evidence of differences between cohabs. Some evidence of differences between sexes. Males more likely to attack for longer.   
+
+
+```{r, message=FALSE, warning=FALSE}
+# Test for evidence of interaction between target and cohab
+M2 <- lmer(data=Data , log(AttackDuration + 0.1) ~ (Cohab_num*Target) + FocalSexM1F2 + (1|Pair))
+anova(M2, M1)
+```
+
+```{r, message=FALSE, warning=FALSE}
+set.seed(05062024)
+Model_Comp_Bootstrap(M2, M1, nboot=10000)
+```
+
+No evidence of target*cohab interaction.  
+
+
+```{r}
+# Test for evidence of interaction between target and sex
+M3 <- lmer(data=Data , log(AttackDuration + 0.1) ~ Cohab_num + FocalSexM1F2*Target + (1|Pair))
+anova(M3, M1)
+```
+
+```{r, message=FALSE, warning=FALSE}
+set.seed(05062024)
+Model_Comp_Bootstrap(M3, M1, nboot=10000)
+```
+
+```{r}
+summary(M3)
+```
+
+Do find evidence of interaction between sex and target. Males attack stranger for longer than females. 
+
+### Does difference between partner and stim differ for pairs that mate, compared to those that don't?
+
+```{r}
+set.seed(05062024)
+Data <- Data |> mutate(Mated=(Mating=="Mated"))
+M4 <- lmer(data=Data , log(AttackDuration + 0.1) ~  Target* Mated + (1|Pair))
+summary(M4)
+```
+
+```{r}
+set.seed(05062024)
+M4pval <- bootstrap_pvals(model = M4, type = "reb", B=10000,reb_type = 0)
+M4pval
+```
+
+No evidence of differences by mating status or mating*target interaction.  
+
+
+
+
+### Logistic Regression Model for Mating
+
+Logistic regression model for whether or not pair mated. 
+
+
+```{r}
+Data_F |> group_by(Cohab) |> summarize(Num_Mated = sum(Mating=="Mated"),
+                                       Prop_Mated= mean(Mating=="Mated"),
+                                       N=n())
+```
+
+
+```{r}
+M1 <- glm(data=Data_F, Mating~ Cohab_num, family=binomial(link = "logit"))
+summary(M1)
+```
+
+```{r}
+M0 <- glm(data=Data_F, Mating~ 1, family=binomial(link = "logit"))
+anova(M0, M1)
+```
+
+```{r}
+Data_F |> group_by(FocalSexM1F2) |> summarize(Num_Mated = sum(Mating=="Mated"),
+                                       Prop_Mated= mean(Mating=="Mated"),
+                                       N=n())
+```
+
+```{r}
+M2 <- glm(data=Data_F, Mating~ FocalSexM1F2, family=binomial(link = "logit"))
+summary(M2)
+```
+```{r}
+anova(M0, M2)
+```
+
+## Mate Preference Index
+
+
+```{r}
+M <- lm(data=Data2,Mate_Pref_Index~1)
+summary(M)
+```
+
+```{r}
+confint(M)
+```
+
+
+```{r}
+sum(Data2$Mate_Pref_Index>0)
+```
+
+
+```{r}
+M <- lm(data=Data2,Mate_Pref_Index~Cohab)
+summary(M)
+```
+
+```{r}
+M <- lm(data=Data2,Mate_Pref_Index~ FocalSexM1F2)
+summary(M)
+```
+
+Large p-values on F-stat shows no evidence of differences between sex or cohab duration. 
+
+
+### Comparison with Reviewer's suggested partner preference scores
+
+```{r}
+ggplot(data=Data1, aes(x=Partner_Pref)) + geom_histogram(fill="blue", binwidth = 0.1)  + ggtitle("Distribution of Partner Preference Scores") + xlab("Partner Preference Score") + theme_bw() + ylab("Frequency")
+```
+
+```{r}
+M <- lm(data=Data2%>% filter(Cohab=="1 day cohab."),Mate_Pref_Index~1)
+summary(M)
+```
+
+Differences in MPI are significant even at 1 day cohab.  
+
+```{r}
+set.seed(05122024)
+BootstrapMeans <- rep(NA, 10000)
+
+for(i in 1:10000){
+D <- Data2%>% filter(Cohab=="1 day cohab.")
+S <- sample(1:nrow(D), replace=TRUE)
+BS <- D[S,]
+BootstrapMeans[i] <- mean(BS$Mate_Pref_Index)
+}
+```
+
+```{r}
+mean(BootstrapMeans)
+```
+
+```{r}
+options(scipen = 999)
+#p-value
+mean(BootstrapMeans<0)
+```
+
+
+### Model for traditional Partner Pref
+
+```{r}
+M <- lm(data=Data1,Partner_Pref~1)
+summary(M)
+```
+
+```{r}
+sum(Data1$Partner_Pref>0)
+```
+
+
+```{r}
+M <- lm(data=Data1,Partner_Pref~Cohab)
+summary(M)
+```
+
+```{r}
+M <- lm(data=Data1,Partner_Pref~ FocalSexM1F2)
+summary(M)
+```
+
+
+### Correlation between Affiliative and Aggressive Behaviors
+
+```{r}
+cor(Data1$Huddling_Diff, Data1$Duration_Diff)
+```
+
+```{r}
+ggplot(data=Data1, aes(x=Huddling_Diff, y=Duration_Diff)) + geom_point() + stat_smooth(method="lm")
+```
+
+```{r}
+cor(Data1$Huddling_Diff, Data1$Time_Diff)
+```
+
+```{r}
+M <- lm(data=Data1, Huddling_Diff ~ Duration_Diff)
+summary(M)
+```
