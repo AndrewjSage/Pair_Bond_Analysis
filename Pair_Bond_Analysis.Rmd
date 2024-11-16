@@ -22,7 +22,7 @@ library(ggpubr)
 ```{r}
 # read and format data
 library(readxl)
-Data_wide <- read_excel("Roy Thesis Data Complete_3.xlsx") %>% filter(`filter_$` == 1)
+Data_wide <- read_excel("PairBondData.xlsx") %>% filter(`filter_$` == 1)
 Data_wide <- Data_wide |> rename(Pair = `Pair#`)
 ```
 
