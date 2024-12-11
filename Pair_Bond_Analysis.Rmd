@@ -172,28 +172,30 @@ library(ggformula)
 P1 <- gf_boxplot(Huddling  ~Target, data=Data, outliers=FALSE) %>%
    gf_point(data=Data, Huddling  ~Target, alpha=0.5) %>% 
    gf_line( Huddling~Target,  group=~factor(Pair), alpha=0.5, linetype =  ~(FocalSexM1F2))  + 
-   facet_grid(~Cohab) +      labs(title= "Huddling", linetype = "Sex") + theme_bw()  + scale_linetype_discrete(name = "Sex", labels = c("M", "F"))  + xlab("Target**") 
+   facet_grid(~Cohab) +      labs(linetype = "Sex") + theme_bw()  + scale_linetype_discrete(name = "Sex", labels = c("M", "F"))  + xlab("Stimulus Animal**") + ylab("Huddling Time (s)")
 
 P2 <- gf_boxplot(TimeinSide  ~Target, data=Data, outliers=FALSE) %>%
    gf_point(data=Data, TimeinSide  ~Target, alpha=0.5) %>% 
    gf_line( TimeinSide~Target,  group=~factor(Pair), alpha=0.5, linetype=  ~(FocalSexM1F2))  + 
-   facet_grid(~Cohab) +  labs(title= "Time in Side Chamber", linetype = "Sex") + theme_bw() + ylab("Time in Side") + scale_linetype_discrete(name = "Sex", labels = c("M", "F"))  + xlab("Target***")
+   facet_grid(~Cohab) +  labs(linetype = "Sex") + theme_bw() + ylab("Time in Side") + scale_linetype_discrete(name = "Sex", labels = c("M", "F"))  + xlab("Stimulus Animal***") + ylab("Time in Side (s)")
 
 P3 <- gf_boxplot(Entrances  ~Target, data=Data, outliers=FALSE) %>%
    gf_point(data=Data, Entrances  ~Target, alpha=0.5) %>% 
    gf_line( Entrances~Target,  group=~factor(Pair), alpha=0.5, linetype=  ~(FocalSexM1F2))  + 
-   facet_grid(~Cohab) +  labs(title= "Entrances", linetype = "Sex") + theme_bw()  + scale_linetype_discrete(name = "Sex", labels = c("M", "F"))  +  xlab("Target**")
+   facet_grid(~Cohab) +  labs(linetype = "Stimulus Animal") + theme_bw()  + scale_linetype_discrete(name = "Sex", labels = c("M", "F"))  +  xlab("Stimulus Animal**")
 
 P4 <- gf_boxplot(Attacks ~Target, data=Data, outliers=FALSE) %>%
       gf_point(data=Data, Attacks ~Target, alpha=0.5) %>% 
-      gf_line(Attacks~Target,  group=~factor(Pair), alpha=0.5, linetype=  ~(FocalSexM1F2))  + facet_grid(~Cohab) + labs(title= "Number of Attacks", linetype = "Sex") + theme_bw()  + scale_linetype_discrete(name = "Sex", labels = c("M", "F"))  + xlab("Target***")
+      gf_line(Attacks~Target,  group=~factor(Pair), alpha=0.5, linetype=  ~(FocalSexM1F2))  + facet_grid(~Cohab) + labs(linetype = "Sex") + theme_bw()  + scale_linetype_discrete(name = "Sex", labels = c("M", "F"))  + xlab("Stimulus Animal***")  + ylab("Number of Attacks")
 
 P5 <- gf_boxplot(AttackDuration ~Target, data=Data) %>%
       gf_point(data=Data, AttackDuration ~Target, alpha=0.5) %>% 
-      gf_line(AttackDuration~Target,  group=~factor(Pair), alpha=0.5, linetype=  ~(FocalSexM1F2)) + facet_grid(~Cohab) + labs(title= "Total Attack Duration", linetype = "Sex") + theme_bw()  + scale_linetype_discrete(name = "Sex", labels = c("M", "F"))   + ylab("Attack Duration") + xlab("Target***")
+      gf_line(AttackDuration~Target,  group=~factor(Pair), alpha=0.5, linetype=  ~(FocalSexM1F2)) + facet_grid(~Cohab) + labs(linetype = "Sex") + theme_bw()  + scale_linetype_discrete(name = "Sex", labels = c("M", "F"))   + xlab("Stimulus Animal***")  + ylab("Attack Duration (s)")
 
 
-ggarrange(P1, P2, P4, P5, nrow=4, common.legend = TRUE, legend="bottom") 
+P <- ggarrange(P1, P2, P4, P5, nrow=4, common.legend = TRUE, legend="bottom") 
+
+annotate_figure(P, top = text_grob("Behaviors toward Partner and Stranger by Cohab. Duration"))
 ```
 
 ### Figure 2
@@ -214,7 +216,7 @@ MeanTab2 <- Data |> group_by(Cohab, FocalSexM1F2, Target) |> summarize(MeanHuddl
 
 ```{r, fig.width=12, fig.height=10}
 
-P1 <- ggplot(data=Data , aes(x=Target, y=AttackDuration,shape=FocalSexM1F2  ) )   + geom_point(position=position_jitterdodge()) + facet_wrap( Cohab~ ., nrow=1) +  geom_bar( data=MeanTab2, aes(x=Target, y=MeanDuration, shape=FocalSexM1F2), stat="identity", position="dodge", fill="lightgrey", alpha=0.7) + theme_bw()  + scale_shape_discrete(name = "Sex", labels = c("M", "F")) + ggtitle("a) Total Attack Duration by Sex and Cohabitation Duration and Sex x Cohab. Interaction") + xlab("Target***")
+P1 <- ggplot(data=Data , aes(x=Target, y=AttackDuration,shape=FocalSexM1F2  ) )   + geom_point(position=position_jitterdodge()) + facet_wrap( Cohab~ ., nrow=1) +  geom_bar( data=MeanTab2, aes(x=Target, y=MeanDuration, shape=FocalSexM1F2), stat="identity", position="dodge", fill="lightgrey", alpha=0.7) + theme_bw()  + scale_shape_discrete(name = "Sex", labels = c("M", "F")) + ggtitle("a) Aggression by Sex and Cohabitation Duration and Sex x Cohab. Interaction") + xlab("Stimulus Animal***") + ylab("Total Attack Duration (s)")
 
 #P1 <- ggplot(data=Data , aes(x=Target, y=Huddling   ,shape=FocalSexM1F2        ) )  + geom_jitter(height=0) + facet_wrap( ~ FocalSexM1F2, nrow=1)  +  geom_bar( data=MeanTab1, aes(x=Target, y=MeanHuddling), stat="identity", fill="lightgrey", alpha=0.7)+ theme_bw()  + scale_shape_discrete(name = "Sex", labels = c("M", "F")) + ggtitle("a) Huddling by Sex") + xlab("Target**")
 
@@ -222,7 +224,7 @@ P1 <- ggplot(data=Data , aes(x=Target, y=AttackDuration,shape=FocalSexM1F2  ) ) 
 
 #P3 <- ggplot(data=Data , aes(x=Target, y=Attacks   ,shape=FocalSexM1F2        ) )  + geom_jitter(height=0) + facet_wrap( ~ FocalSexM1F2, nrow=1)  +  geom_bar( data=MeanTab1, aes(x=Target, y=MeanAttacks), stat="identity", fill="lightgrey", alpha=0.7)+ theme_bw()  + scale_shape_discrete(name = "Sex", labels = c("M", "F")) + ggtitle("c) Number of Attacks by Sex") + xlab("Target***")
 
-P2 <- ggplot(data=Data , aes(x=Target, y=AttackDuration   ,shape=FocalSexM1F2        ) )  + geom_jitter(height=0) + facet_wrap( ~ FocalSexM1F2, nrow=1)  +  geom_bar( data=MeanTab1, aes(x=Target, y=MeanDuration), stat="identity", fill="lightgrey", alpha=0.7)+ theme_bw()  + scale_shape_discrete(name = "Sex", labels = c("M", "F")) + ggtitle("b) Total Attack Duration by Sex and Sex x Target Interaction*") + xlab("Target***")
+P2 <- ggplot(data=Data , aes(x=Target, y=AttackDuration   ,shape=FocalSexM1F2        ) )  + geom_jitter(height=0) + facet_wrap( ~ FocalSexM1F2, nrow=1)  +  geom_bar( data=MeanTab1, aes(x=Target, y=MeanDuration), stat="identity", fill="lightgrey", alpha=0.7)+ theme_bw()  + scale_shape_discrete(name = "Sex", labels = c("M", "F")) + ggtitle("b) Aggression by Sex and Sex x Target Interaction*") + xlab("Stimulus Animal***") + ylab("Total Attack Duration (s)")
 
 
 ggarrange(P1,  P2, nrow=2, ncol=1, common.legend = TRUE, legend="bottom") 
@@ -233,7 +235,7 @@ ggarrange(P1,  P2, nrow=2, ncol=1, common.legend = TRUE, legend="bottom")
 Data |> group_by(FocalSexM1F2, Target) |> summarize(sum(Attacks>0), n())
 ```
 
-### Figure 3
+### Figure 5
 
 
 ```{r}
@@ -241,7 +243,8 @@ Data |> group_by(FocalSexM1F2, Target) |> summarize(sum(Attacks>0), n())
 Data1 <- Data |> filter(Target=="Partner") |> mutate(Huddling_Stranger = Huddling-Huddling_Diff, Duration_Stranger = AttackDuration - Duration_Diff)
 Data1 <- Data1 |> mutate(Huddling_Ratio = (Huddling_Diff)/(Huddling + Huddling_Stranger),
                          Duration_Ratio = -1*Duration_Diff/(AttackDuration + Duration_Stranger + 0.000001), # for no attack, set to 0
-                         Partner_Pref = Huddling_Ratio*0.75 + Duration_Ratio*0.25)
+                         Partner_Pref = Huddling_Ratio,
+                         Partner_Avoid = Duration_Ratio)
 head(Data1)
 ```
 
@@ -274,9 +277,9 @@ MeanTabMPI <- Data2 |> group_by(Cohab, FocalSexM1F2) |> summarize(MeanMPI = mean
 ```
 
 ```{r, figure 3}
-P1 <- ggplot(data=Data2, aes(x=Cohab, y=Mate_Pref_Index)) + geom_boxplot(outliers=FALSE)  + geom_jitter( aes(shape=FocalSexM1F2)) + theme_bw() + geom_abline(slope=0, intercept=0, linetype="dashed") + xlab("Cohabitation Duration") + ylab("Mate Preference Index") + scale_shape_discrete(name = "Sex", labels = c("M", "F")) + ggtitle("a) Mate Preference Index by Cohabitation Duration and Sex")
+P1 <- ggplot(data=Data2, aes(x=Cohab, y=Mate_Pref_Index)) + geom_boxplot(outliers=FALSE)  + geom_jitter( aes(shape=FocalSexM1F2)) + theme_bw() + geom_abline(slope=0, intercept=0, linetype="dashed") + xlab("Cohabitation Duration") + ylab("MPI") + scale_shape_discrete(name = "Sex", labels = c("M", "F")) + ggtitle("a) Mate Preference Index by Cohabitation Duration and Sex")
 
-P2 <- ggplot(data=Data2, aes(x=FocalSexM1F2, y=Mate_Pref_Index, shape=FocalSexM1F2)) + geom_boxplot(outliers=FALSE)  + geom_jitter() + theme_bw() + geom_abline(slope=0, intercept=0, linetype="dashed") + scale_shape_discrete(name = "Sex", labels = c("M", "F")) + xlab("Sex of Experimental Animal") + ylab("Mate Preference Index")  + ggtitle("b) Mate Preference Index by Sex")
+P2 <- ggplot(data=Data2, aes(x=FocalSexM1F2, y=Mate_Pref_Index, shape=FocalSexM1F2)) + geom_boxplot(outliers=FALSE)  + geom_jitter() + theme_bw() + geom_abline(slope=0, intercept=0, linetype="dashed") + scale_shape_discrete(name = "Sex", labels = c("M", "F")) + xlab("Sex of Experimental Animal") + ylab("MPI")  + ggtitle("b) Mate Preference Index by Sex")
 
 #ggplot(data=Data2, aes(x=Cohab, y=Mate_Pref_Index))  + geom_jitter( aes(shape=FocalSexM1F2)) +  geom_bar( data=MeanTabMPI, aes(x=Cohab, y=MeanMPI, shape=FocalSexM1F2), stat="identity", fill="lightgrey", alpha=0.7, position="dodge")+ theme_bw() 
 
@@ -297,26 +300,27 @@ Data <- Data |> mutate(Mating = fct_recode(as.character(Mating), "Mated" = "TRUE
 library(ggformula)
 P1 <- gf_boxplot(Huddling  ~Target, data=Data |> filter(!is.na(Mating)), outliers=FALSE) %>%
    gf_point(Huddling  ~Target, alpha=0.5) %>% 
-   gf_line( Huddling~Target,  group=~factor(Pair), alpha=0.5, linetype=  ~(FocalSexM1F2)) + facet_grid(~Mating)  + labs(title= "Huddling", linetype = "Sex") + theme_bw()  + scale_linetype_discrete(name = "Sex", labels = c("M", "F"))  +  xlab("Target**")
+   gf_line( Huddling~Target,  group=~factor(Pair), alpha=0.5, linetype=  ~(FocalSexM1F2)) + facet_grid(~Mating)  + labs(linetype = "Sex") + theme_bw()  + scale_linetype_discrete(name = "Sex", labels = c("M", "F"))  +  xlab("Stimulus Animal**") + ylab("Huddling Time (s)")
 
 P2 <- gf_boxplot(TimeinSide  ~Target, data=Data |> filter(!is.na(Mating)), outliers=FALSE) %>%
    gf_point(TimeinSide  ~Target, alpha=0.5) %>% 
-   gf_line( TimeinSide~Target,  group=~factor(Pair), alpha=0.5, linetype=  ~(FocalSexM1F2)) + facet_grid(~Mating) +   labs(title= "Time in Side", linetype = "Sex") + theme_bw()  + scale_linetype_discrete(name = "Sex", labels = c("M", "F"))  +  xlab("Target**")
+   gf_line( TimeinSide~Target,  group=~factor(Pair), alpha=0.5, linetype=  ~(FocalSexM1F2)) + facet_grid(~Mating) +   labs(linetype = "Sex") + theme_bw()  + scale_linetype_discrete(name = "Sex", labels = c("M", "F"))  +  xlab("Stimulus Animal**") + ylab("Time in Side (s)")
 
 P3 <- gf_boxplot(Entrances  ~Target, data=Data |> filter(!is.na(Mating)), outliers=FALSE) %>%
    gf_point(Entrances  ~Target, alpha=0.5) %>% 
-   gf_line( Entrances~Target,  group=~factor(Pair), alpha=0.5, linetype=  ~(FocalSexM1F2))  + facet_grid(~Mating) +   labs(title= "Entrances", linetype = "Sex") + theme_bw()  + scale_linetype_discrete(name = "Sex", labels = c("M", "F"))  +  xlab("Target***")
+   gf_line( Entrances~Target,  group=~factor(Pair), alpha=0.5, linetype=  ~(FocalSexM1F2))  + facet_grid(~Mating) +   labs(linetype = "Sex") + theme_bw()  + scale_linetype_discrete(name = "Sex", labels = c("M", "F"))  +  xlab("Stimulus Animal***") + ylab("Number of Entrances")
 
 P4 <- gf_boxplot(Attacks ~Target, data=Data|> filter(!is.na(Mating)), outliers=FALSE) %>%
       gf_point(Attacks ~Target, alpha=0.5) %>% 
-      gf_line(Attacks~Target,  group=~factor(Pair), alpha=0.5, linetype=  ~(FocalSexM1F2)) + facet_grid(~Mating) + labs(title= "Number of Attacks", linetype = "Sex") + theme_bw()  + scale_linetype_discrete(name = "Sex", labels = c("M", "F"))  +  xlab("Target***")
+      gf_line(Attacks~Target,  group=~factor(Pair), alpha=0.5, linetype=  ~(FocalSexM1F2)) + facet_grid(~Mating) + labs(linetype = "Sex") + theme_bw()  + scale_linetype_discrete(name = "Sex", labels = c("M", "F"))  +  xlab("Stimulus Animal***") + ylab("Number of Attacks")
 
 P5 <- gf_boxplot(AttackDuration ~Target, data=Data|> filter(!is.na(Mating)), outliers=FALSE) %>%
       gf_point(AttackDuration ~Target, alpha=0.5) %>% 
-      gf_line(AttackDuration~Target,  group=~factor(Pair), alpha=0.5, linetype=  ~(FocalSexM1F2)) + facet_grid(~Mating) + labs(title= "Attack Duration", linetype = "Sex") + theme_bw()  + scale_linetype_discrete(name = "Sex", labels = c("M", "F"))  +  xlab("Target***")
+      gf_line(AttackDuration~Target,  group=~factor(Pair), alpha=0.5, linetype=  ~(FocalSexM1F2)) + facet_grid(~Mating) + labs(linetype = "Sex") + theme_bw()  + scale_linetype_discrete(name = "Sex", labels = c("M", "F"))  +  xlab("Stimulus Animal***") + ylab("Attack Duration (s)")
 
-ggarrange(P1, P2, P4, P5, nrow=4, common.legend = TRUE, legend="bottom") 
+P <- ggarrange(P1, P2, P4, P5, nrow=4, common.legend = TRUE, legend="bottom") 
 
+annotate_figure(P, top = text_grob("Behaviors toward Partner and Stranger by Mating Status"))
 ```
 
 
@@ -838,4 +842,9 @@ cor(Data1$Huddling_Diff, Data1$Time_Diff)
 ```{r}
 M <- lm(data=Data1, Huddling_Diff ~ Duration_Diff)
 summary(M)
+```
+
+
+```{r}
+ggplot()
 ```
